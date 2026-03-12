@@ -1,3 +1,13 @@
+export type VesselClass =
+  | "vlcc"
+  | "suezmax"
+  | "aframax"
+  | "lng"
+  | "vlgc"
+  | "lpg"
+  | "product_tanker"
+  | "tanker_generic";
+
 export interface VesselData {
   mmsi: number;
   name: string;
@@ -9,9 +19,16 @@ export interface VesselData {
   navStatus: number;
   timestamp: string;
   shipType?: number;
+  vesselClass?: VesselClass;
   destination?: string;
   flag?: string;
   imo?: string;
+  length?: number; // metres (Dimension A + B)
+  beam?: number; // metres (Dimension C + D)
+  draught?: number;
+  eta?: string;
+  callSign?: string;
+  imoNumber?: number;
 }
 
 export type VesselStatus = "transit" | "anchored" | "conflict" | "distress";

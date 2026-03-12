@@ -10,7 +10,10 @@ export interface AISMessage {
   };
   Message: {
     PositionReport?: PositionReport;
+    ShipStaticData?: ShipStaticDataReport;
   };
+  // Enriched by server-side merge
+  StaticData?: EnrichedStaticData;
 }
 
 export interface PositionReport {
@@ -31,6 +34,45 @@ export interface PositionReport {
   TrueHeading: number;
   UserID: number; // MMSI
   Valid: boolean;
+}
+
+export interface ShipStaticDataReport {
+  AisVersion: number;
+  CallSign: string;
+  Destination: string;
+  Dimension: {
+    A: number; // bow to reference point
+    B: number; // reference point to stern
+    C: number; // port side
+    D: number; // starboard side
+  };
+  Dte: boolean;
+  Eta: {
+    Month: number;
+    Day: number;
+    Hour: number;
+    Minute: number;
+  };
+  FixType: number;
+  ImoNumber: number;
+  MaximumStaticDraught: number;
+  MessageID: number;
+  RepeatIndicator: number;
+  Spare: boolean;
+  Type: number; // AIS ship type code
+  UserID: number; // MMSI
+  Valid: boolean;
+}
+
+export interface EnrichedStaticData {
+  shipType: number | null;
+  destination: string;
+  length: number;
+  beam: number;
+  draught: number;
+  eta: string;
+  imo: number;
+  callSign: string;
 }
 
 export interface AISSubscription {
