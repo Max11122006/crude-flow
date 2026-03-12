@@ -31,7 +31,7 @@ All free tier. API keys stored in `.env.local` and accessed only via Next.js API
 |---|---|---|---|---|
 | **Live ship positions** | [aisstream.io](https://aisstream.io) | API key (free signup) | Unlimited WebSocket streaming | WebSocket `wss://stream.aisstream.io/v0/stream` |
 | **Map tiles** | [Mapbox](https://mapbox.com) | Access token (free, .edu email) | 50,000 web loads/month | `mapboxgl.Map` init |
-| **Conflict events** | [ACLED](https://acleddata.com) | OAuth token (free, .edu email) | Free public access tier | REST `https://api.acleddata.com/acled/read` |
+| **Conflict events** | [ACLED](https://acleddata.com) | OAuth token (free, .edu email) | Free public access tier | REST `https://acleddata.com/api/acled/read` (Bearer token auth) |
 | **Oil prices** | [Twelve Data](https://twelvedata.com) | API key (free signup) | 800 req/day | REST `https://api.twelvedata.com/time_series` |
 | **News/Intel** | [GNews](https://gnews.io) | API key (free signup) | 100 req/day | REST `https://gnews.io/api/v4/search` |
 | **News (supplement)** | RSS feeds (Reuters, BBC, Maritime Executive) | None | Unlimited | Parsed server-side via `rss-parser` |
@@ -43,7 +43,7 @@ All free tier. API keys stored in `.env.local` and accessed only via Next.js API
 AISSTREAM_API_KEY=
 NEXT_PUBLIC_MAPBOX_TOKEN=
 ACLED_EMAIL=
-ACLED_ACCESS_KEY=
+ACLED_PASSWORD=
 TWELVEDATA_API_KEY=
 GNEWS_API_KEY=
 ```
@@ -409,7 +409,7 @@ Fetches recent ACLED events filtered to maritime-relevant regions. Returns geo-l
 }
 ```
 
-Cache for 1 hour (ACLED updates weekly).
+Cache for 1 hour (ACLED updates weekly). Uses OAuth token-based auth — the server exchanges `ACLED_EMAIL` + `ACLED_PASSWORD` for a Bearer token via `POST https://acleddata.com/oauth/token`, caches it in memory, and refreshes automatically when expired.
 
 ### AIS WebSocket Connection
 
@@ -447,7 +447,7 @@ Filter client-side for ship types 80-89 (tankers). Store vessels in a `Map<mmsi,
 3. Sign up for free accounts and fill in keys:
    - **aisstream.io** → Create account → API key in dashboard
    - **Mapbox** → Sign up with .edu email → Access token in account settings
-   - **ACLED** → Register with .edu email → Generate access key in portal
+   - **ACLED** → Register with .edu email → Use your account email and password (OAuth token auth is handled automatically)
    - **Twelve Data** → Sign up → API key in dashboard
    - **GNews** → Sign up → API key in dashboard
 4. `npm install`
