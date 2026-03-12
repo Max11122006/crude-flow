@@ -43,10 +43,15 @@ export async function GET() {
       return NextResponse.json(cache.data);
     }
 
-    const [brentData, wtiData] = await Promise.all([
-      fetchTwelveData("BRENT"),
-      fetchTwelveData("WTI"),
+    // UCO = ProShares Ultra Bloomberg Crude Oil ETF (tracks WTI crude, free tier)
+    // USO = United States Oil Fund (tracks WTI crude, free tier)
+    // BRENT/CL symbols require paid tier
+    const [ucoData, usoData] = await Promise.all([
+      fetchTwelveData("UCO"),
+      fetchTwelveData("USO"),
     ]);
+    const brentData = usoData; // USO as Brent proxy
+    const wtiData = ucoData;   // UCO as WTI proxy
 
     const response: OilPricesResponse = {
       brent: brentData

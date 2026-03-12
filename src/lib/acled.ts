@@ -13,7 +13,7 @@ async function authenticate(): Promise<string | null> {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      email,
+      username: email,
       password,
       grant_type: "password",
       client_id: "acled",

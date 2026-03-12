@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 import type { NewsEntry, NewsFeedResponse } from "@/types/news";
 import { classifySeverity } from "@/lib/news-classifier";
+
+function hashId(input: string): string {
+  return crypto.createHash("sha256").update(input).digest("hex").slice(0, 16);
+}
 
 let cache: { data: NewsFeedResponse; timestamp: number } | null = null;
 const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
@@ -34,7 +39,7 @@ async function fetchGNews(query: string): Promise<NewsEntry[]> {
         url: string;
         publishedAt: string;
       }) => ({
-        id: Buffer.from(article.url).toString("base64").slice(0, 20),
+        id: hashId(article.url),
         title: article.title,
         summary: article.description || "",
         source: article.source?.name || "Unknown",
@@ -75,7 +80,7 @@ async function fetchRSS(): Promise<NewsEntry[]> {
             text.includes("energy")
           ) {
             results.push({
-              id: Buffer.from(item.link || title).toString("base64").slice(0, 20),
+              id: hashId(item.link || title),
               title,
               summary,
               source: feed.title || "RSS",

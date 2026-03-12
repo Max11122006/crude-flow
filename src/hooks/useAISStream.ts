@@ -15,88 +15,81 @@ interface UseAISStreamReturn {
 export function useAISStream(): UseAISStreamReturn {
   const [vessels, setVessels] = useState<Map<number, VesselData>>(new Map());
   const [connected, setConnected] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
   const bufferRef = useRef<Map<number, VesselData>>(new Map());
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const flushBuffer = useCallback(() => {
     if (bufferRef.current.size === 0) return;
+    const buffered = bufferRef.current.size;
+    const entries = Array.from(bufferRef.current.entries());
+    bufferRef.current.clear();
     setVessels((prev) => {
       const next = new Map(prev);
-      bufferRef.current.forEach((vessel, mmsi) => {
+      for (const [mmsi, vessel] of entries) {
         next.set(mmsi, vessel);
-      });
-      bufferRef.current.clear();
+      }
+      console.log(`[AIS] Flushed ${buffered} vessels, total: ${next.size}`);
       return next;
     });
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    let eventSource: EventSource | null = null;
+    let flushInterval: ReturnType<typeof setInterval> | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let alive = true;
 
-    async function connect() {
-      try {
-        const res = await fetch("/api/ais");
-        if (!res.ok) return;
-        const { apiKey, wsUrl } = await res.json();
+    function connect() {
+      if (!alive) return;
 
-        if (cancelled) return;
+      console.log("[AIS] Connecting to SSE stream...");
+      eventSource = new EventSource("/api/ais");
 
-        const ws = new WebSocket(wsUrl);
-        wsRef.current = ws;
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
 
-        ws.onopen = () => {
-          setConnected(true);
-          ws.send(
-            JSON.stringify({
-              APIKey: apiKey,
-              BoundingBoxes: [[[-90, -180], [90, 180]]],
-              FiltersShipMMSI: [],
-              FilterMessageTypes: ["PositionReport"],
-            })
-          );
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            const msg: AISMessage = JSON.parse(event.data);
-            const vessel = parseAISMessage(msg);
-            if (vessel) {
-              // Filter for tankers (ship type 80-89) or accept all if no ship type info
-              bufferRef.current.set(vessel.mmsi, vessel);
-            }
-          } catch {
-            // Skip malformed messages
+          // Handle control messages
+          if (data.type === "connected") {
+            console.log("[AIS] Stream connected");
+            setConnected(true);
+            return;
           }
-        };
-
-        ws.onclose = () => {
-          setConnected(false);
-          // Reconnect after 5 seconds
-          if (!cancelled) {
-            setTimeout(connect, 5000);
+          if (data.type === "disconnected") {
+            console.log("[AIS] Stream disconnected");
+            setConnected(false);
+            return;
           }
-        };
 
-        ws.onerror = () => {
-          ws.close();
-        };
-      } catch {
-        if (!cancelled) {
-          setTimeout(connect, 5000);
+          // Parse AIS vessel message
+          const msg = data as AISMessage;
+          const vessel = parseAISMessage(msg);
+          if (vessel) {
+            bufferRef.current.set(vessel.mmsi, vessel);
+          }
+        } catch {
+          // Skip malformed messages
         }
-      }
+      };
+
+      eventSource.onerror = () => {
+        console.log("[AIS] SSE error, reconnecting...");
+        setConnected(false);
+        eventSource?.close();
+        eventSource = null;
+        if (alive) {
+          reconnectTimer = setTimeout(connect, 5000);
+        }
+      };
     }
 
     connect();
-
-    // Batch update interval
-    intervalRef.current = setInterval(flushBuffer, AIS_BATCH_INTERVAL);
+    flushInterval = setInterval(flushBuffer, AIS_BATCH_INTERVAL);
 
     return () => {
-      cancelled = true;
-      wsRef.current?.close();
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      alive = false;
+      eventSource?.close();
+      if (flushInterval) clearInterval(flushInterval);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
     };
   }, [flushBuffer]);
 
