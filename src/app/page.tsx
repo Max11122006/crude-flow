@@ -14,7 +14,7 @@ const DashboardShell = dynamic(
         <div className="text-center">
           <div className="mb-4 text-2xl">◉</div>
           <h1 className="font-mono text-sm font-bold tracking-widest text-text-primary">
-            PETROL COMMAND
+            CRUDE FLOW
           </h1>
           <p className="mt-2 font-mono text-xs text-text-tertiary">
             Initializing dashboard...

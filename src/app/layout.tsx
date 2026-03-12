@@ -24,7 +24,7 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PETROL COMMAND — Global Oil Shipping Intelligence",
+  title: "CRUDE FLOW — Global Oil Shipping Intelligence",
   description:
     "Real-time global oil shipping intelligence dashboard with live tanker positions, conflict zones, oil prices, and maritime news.",
 };

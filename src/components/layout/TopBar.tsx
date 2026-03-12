@@ -19,7 +19,7 @@ export function TopBar({ riskLevel, aisConnected }: TopBarProps) {
         <div className="flex items-center gap-2">
           <span className="text-lg font-bold">◉</span>
           <h1 className="font-mono text-sm font-bold tracking-widest text-text-primary">
-            PETROL COMMAND
+            CRUDE FLOW
           </h1>
         </div>
         <div className="hidden sm:block">
