@@ -1,5 +1,6 @@
 import type mapboxgl from "mapbox-gl";
 import type { VesselClass } from "@/types/vessel";
+import { VESSEL_CLASS_CONFIG } from "./vessel-classifier";
 
 // Top-down ship silhouette SVG paths (pointing NORTH / bow up)
 // Viewbox: 0 0 32 32, centered, bow at top
@@ -31,7 +32,10 @@ const VESSEL_PATHS: Record<VesselClass, string> = {
 
 const ICON_SIZE = 64; // pixels (retina)
 
-function createIconCanvas(path: string): HTMLCanvasElement {
+function createIconImageData(
+  path: string,
+  fillColor: string,
+): { width: number; height: number; data: Uint8Array } {
   const canvas = document.createElement("canvas");
   canvas.width = ICON_SIZE;
   canvas.height = ICON_SIZE;
@@ -40,25 +44,34 @@ function createIconCanvas(path: string): HTMLCanvasElement {
   // Scale from 32x32 viewbox to 64x64 canvas
   ctx.scale(2, 2);
 
-  // Draw the path in white (SDF mode uses alpha channel)
-  ctx.fillStyle = "white";
-  ctx.strokeStyle = "white";
-  ctx.lineWidth = 0.5;
-
   const path2d = new Path2D(path);
-  ctx.fill(path2d);
+
+  // Dark stroke for contrast on dark map
+  ctx.strokeStyle = "#0a0e17";
+  ctx.lineWidth = 1.5;
   ctx.stroke(path2d);
 
-  return canvas;
+  // Fill with class color
+  ctx.fillStyle = fillColor;
+  ctx.fill(path2d);
+
+  // Lighter inner stroke for definition
+  ctx.strokeStyle = fillColor;
+  ctx.lineWidth = 0.3;
+  ctx.stroke(path2d);
+
+  const imageData = ctx.getImageData(0, 0, ICON_SIZE, ICON_SIZE);
+  return { width: ICON_SIZE, height: ICON_SIZE, data: new Uint8Array(imageData.data.buffer) };
 }
 
 export function loadVesselIcons(map: mapboxgl.Map): void {
   const classes = Object.keys(VESSEL_PATHS) as VesselClass[];
 
   for (const cls of classes) {
-    const canvas = createIconCanvas(VESSEL_PATHS[cls]);
+    const color = VESSEL_CLASS_CONFIG[cls].color;
+    const imgData = createIconImageData(VESSEL_PATHS[cls], color);
     if (!map.hasImage(cls)) {
-      map.addImage(cls, canvas, { sdf: true, pixelRatio: 2 });
+      map.addImage(cls, imgData, { pixelRatio: 2 });
     }
   }
 

@@ -3,10 +3,13 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-import type { VesselData } from "@/types/vessel";
+import type { VesselData, VesselClass } from "@/types/vessel";
 import type { ConflictZone } from "@/types/conflict";
 import { vesselToGeoJSON } from "@/lib/ais-parser";
+import { loadVesselIcons } from "@/lib/vessel-icons";
+import { VESSEL_CLASS_CONFIG } from "@/lib/vessel-classifier";
 import { SHIPPING_LANES_GEOJSON } from "@/lib/shipping-lanes";
+import { CONFLICT_REGIONS } from "@/lib/constants";
 import {
   MAP_DEFAULT_CENTER,
   MAP_DEFAULT_ZOOM,
@@ -18,6 +21,40 @@ interface GlobalMapProps {
   vessels: Map<number, VesselData>;
   conflictZones: ConflictZone[];
   mapRef: React.MutableRefObject<mapboxgl.Map | null>;
+}
+
+// Build icon-image match expression for vessel classes
+function buildIconImageExpression(): mapboxgl.Expression {
+  const classes = Object.keys(VESSEL_CLASS_CONFIG) as VesselClass[];
+  const expr: (string | string[])[] = ["match", ["get", "vesselClass"]];
+  for (const cls of classes) {
+    expr.push(cls, cls);
+  }
+  expr.push("tanker_generic"); // fallback
+  return expr as unknown as mapboxgl.Expression;
+}
+
+// Build icon-size as a top-level interpolate (zoom must be at the top level).
+// Class-based scaling is baked into each zoom stop via a match expression.
+function buildIconSizeExpression(): mapboxgl.Expression {
+  function classScale(base: number): unknown[] {
+    const classes = Object.keys(VESSEL_CLASS_CONFIG) as VesselClass[];
+    const expr: (string | number | string[])[] = ["match", ["get", "vesselClass"]];
+    for (const cls of classes) {
+      expr.push(cls, base * VESSEL_CLASS_CONFIG[cls].iconSize);
+    }
+    expr.push(base * 0.9); // fallback
+    return expr;
+  }
+
+  return [
+    "interpolate", ["linear"], ["zoom"],
+    3, classScale(0.3),
+    6, classScale(0.4),
+    9, classScale(0.6),
+    12, classScale(0.9),
+    15, classScale(1.2),
+  ] as unknown as mapboxgl.Expression;
 }
 
 export function GlobalMap({ vessels, conflictZones, mapRef }: GlobalMapProps) {
@@ -48,6 +85,9 @@ export function GlobalMap({ vessels, conflictZones, mapRef }: GlobalMapProps) {
     map.addControl(new mapboxgl.NavigationControl(), "bottom-right");
 
     map.on("load", () => {
+      // Load SDF vessel icons
+      loadVesselIcons(map);
+
       // Vessel source (clustered)
       map.addSource("vessels", {
         type: "geojson",
@@ -88,25 +128,42 @@ export function GlobalMap({ vessels, conflictZones, mapRef }: GlobalMapProps) {
         },
       });
 
-      // Individual vessel markers
+      // Status indicator circles (behind ship icons, only for conflict/distress)
       map.addLayer({
-        id: "vessel-points",
+        id: "vessel-status-dots",
         type: "circle",
         source: "vessels",
-        filter: ["!", ["has", "point_count"]],
+        filter: ["all",
+          ["!", ["has", "point_count"]],
+          ["in", ["get", "status"], ["literal", ["conflict", "distress"]]],
+        ],
         paint: {
           "circle-color": [
             "match",
             ["get", "status"],
-            "transit", "#3b82f6",
-            "anchored", "#06b6d4",
             "conflict", "#f97316",
             "distress", "#ef4444",
-            "#3b82f6",
+            "transparent",
           ],
-          "circle-radius": 4,
-          "circle-stroke-width": 1,
-          "circle-stroke-color": "#0a0e17",
+          "circle-radius": 8,
+          "circle-opacity": 0.5,
+          "circle-blur": 0.5,
+        },
+      });
+
+      // Individual vessel icons (symbol layer)
+      map.addLayer({
+        id: "vessel-points",
+        type: "symbol",
+        source: "vessels",
+        filter: ["!", ["has", "point_count"]],
+        layout: {
+          "icon-image": buildIconImageExpression(),
+          "icon-size": buildIconSizeExpression(),
+          "icon-rotate": ["get", "course"],
+          "icon-rotation-alignment": "map",
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
         },
       });
 
@@ -128,31 +185,76 @@ export function GlobalMap({ vessels, conflictZones, mapRef }: GlobalMapProps) {
         },
       });
 
-      // Conflict zones source
+      // Static conflict regions (always visible)
+      const staticConflictFeatures = CONFLICT_REGIONS.map((region) => ({
+        type: "Feature" as const,
+        properties: { name: region.name, color: region.color, threatLevel: "LOW" },
+        geometry: {
+          type: "Polygon" as const,
+          coordinates: [[
+            [region.bounds.west, region.bounds.north],
+            [region.bounds.east, region.bounds.north],
+            [region.bounds.east, region.bounds.south],
+            [region.bounds.west, region.bounds.south],
+            [region.bounds.west, region.bounds.north],
+          ]],
+        },
+      }));
+
       map.addSource("conflict-zones", {
         type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
+        data: { type: "FeatureCollection", features: staticConflictFeatures },
       });
 
-      map.addLayer({
-        id: "conflict-zones-fill",
-        type: "fill",
-        source: "conflict-zones",
-        paint: {
-          "fill-color": "#ef4444",
-          "fill-opacity": 0.15,
-        },
-      });
-
+      // Dashed border
       map.addLayer({
         id: "conflict-zones-border",
         type: "line",
         source: "conflict-zones",
         paint: {
-          "line-color": "#ef4444",
-          "line-opacity": 0.4,
-          "line-width": 1,
-          "line-dasharray": [3, 3],
+          "line-color": ["get", "color"],
+          "line-opacity": 0.6,
+          "line-width": 1.5,
+          "line-dasharray": [4, 3],
+        },
+      });
+
+      // Subtle fill
+      map.addLayer({
+        id: "conflict-zones-fill",
+        type: "fill",
+        source: "conflict-zones",
+        paint: {
+          "fill-color": ["get", "color"],
+          "fill-opacity": [
+            "match",
+            ["get", "threatLevel"],
+            "CRITICAL", 0.18,
+            "HIGH", 0.14,
+            "ELEVATED", 0.10,
+            0.06,
+          ],
+        },
+      });
+
+      // Zone labels
+      map.addLayer({
+        id: "conflict-zones-labels",
+        type: "symbol",
+        source: "conflict-zones",
+        layout: {
+          "text-field": ["get", "name"],
+          "text-font": ["DIN Pro Medium", "Arial Unicode MS Bold"],
+          "text-size": 10,
+          "text-transform": "uppercase",
+          "text-letter-spacing": 0.1,
+          "text-allow-overlap": false,
+        },
+        paint: {
+          "text-color": ["get", "color"],
+          "text-opacity": 0.7,
+          "text-halo-color": "#0a0e17",
+          "text-halo-width": 1,
         },
       });
 
@@ -171,14 +273,34 @@ export function GlobalMap({ vessels, conflictZones, mapRef }: GlobalMapProps) {
         if (!props) return;
         const coords = (e.features[0].geometry as GeoJSON.Point).coordinates as [number, number];
 
+        const classLabel = props.vesselClass
+          ? (VESSEL_CLASS_CONFIG[props.vesselClass as VesselClass]?.label || "Tanker")
+          : "Tanker";
+        const classColor = props.vesselClass
+          ? (VESSEL_CLASS_CONFIG[props.vesselClass as VesselClass]?.color || "#64748b")
+          : "#64748b";
+
+        const dimStr = props.length && Number(props.length) > 0
+          ? `${props.length}m × ${props.beam || "?"}m`
+          : "";
+
         popup
           .setLngLat(coords)
           .setHTML(
             `<div style="font-family:monospace;font-size:11px;color:#e2e8f0;padding:4px;">
-              <strong>${props.name}</strong><br/>
-              Speed: ${Number(props.speed).toFixed(1)} kn<br/>
-              Course: ${Number(props.course).toFixed(0)}°<br/>
-              Status: ${props.status}
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                <span style="background:${classColor};color:#000;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;">${classLabel}</span>
+                <strong>${props.name}</strong>
+              </div>
+              <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:10px;">
+                <span style="color:#94a3b8;">SPEED</span><span>${Number(props.speed).toFixed(1)} kn</span>
+                <span style="color:#94a3b8;">COURSE</span><span>${Number(props.course).toFixed(0)}°</span>
+                <span style="color:#94a3b8;">STATUS</span><span>${props.status}</span>
+                ${dimStr ? `<span style="color:#94a3b8;">SIZE</span><span>${dimStr}</span>` : ""}
+                ${props.destination ? `<span style="color:#94a3b8;">DEST</span><span>${props.destination}</span>` : ""}
+                ${props.eta ? `<span style="color:#94a3b8;">ETA</span><span>${props.eta}</span>` : ""}
+                ${props.imoNumber && Number(props.imoNumber) > 0 ? `<span style="color:#94a3b8;">IMO</span><span>${props.imoNumber}</span>` : ""}
+              </div>
             </div>`
           )
           .addTo(map);
@@ -224,34 +346,40 @@ export function GlobalMap({ vessels, conflictZones, mapRef }: GlobalMapProps) {
     }
   }, [vessels, loaded, mapRef]);
 
-  // Update conflict zones
+  // Update conflict zones with ACLED threat levels
   useEffect(() => {
     if (!loaded || !mapRef.current) return;
     const map = mapRef.current;
     const source = map.getSource("conflict-zones") as mapboxgl.GeoJSONSource;
     if (!source) return;
 
-    const features = conflictZones.map((zone) => ({
+    // Build a lookup from ACLED data by zone name
+    const threatByName: Record<string, string> = {};
+    for (const zone of conflictZones) {
+      threatByName[zone.name] = zone.threatLevel;
+    }
+
+    // Merge threat levels into static regions
+    const features = CONFLICT_REGIONS.map((region) => ({
       type: "Feature" as const,
-      properties: { name: zone.name, threatLevel: zone.threatLevel },
+      properties: {
+        name: region.name,
+        color: region.color,
+        threatLevel: threatByName[region.name] || "LOW",
+      },
       geometry: {
         type: "Polygon" as const,
-        coordinates: [
-          [
-            [zone.bounds.west, zone.bounds.north],
-            [zone.bounds.east, zone.bounds.north],
-            [zone.bounds.east, zone.bounds.south],
-            [zone.bounds.west, zone.bounds.south],
-            [zone.bounds.west, zone.bounds.north],
-          ],
-        ],
+        coordinates: [[
+          [region.bounds.west, region.bounds.north],
+          [region.bounds.east, region.bounds.north],
+          [region.bounds.east, region.bounds.south],
+          [region.bounds.west, region.bounds.south],
+          [region.bounds.west, region.bounds.north],
+        ]],
       },
     }));
 
-    source.setData({
-      type: "FeatureCollection",
-      features,
-    });
+    source.setData({ type: "FeatureCollection", features });
   }, [conflictZones, loaded, mapRef]);
 
   // Layer visibility
@@ -259,7 +387,7 @@ export function GlobalMap({ vessels, conflictZones, mapRef }: GlobalMapProps) {
     if (!loaded || !mapRef.current) return;
     const map = mapRef.current;
 
-    const shipLayers = ["vessel-clusters", "vessel-cluster-count", "vessel-points"];
+    const shipLayers = ["vessel-clusters", "vessel-cluster-count", "vessel-status-dots", "vessel-points"];
     shipLayers.forEach((l) => {
       if (map.getLayer(l)) {
         map.setLayoutProperty(l, "visibility", layers.ships ? "visible" : "none");
@@ -274,7 +402,7 @@ export function GlobalMap({ vessels, conflictZones, mapRef }: GlobalMapProps) {
       );
     }
 
-    const conflictLayers = ["conflict-zones-fill", "conflict-zones-border"];
+    const conflictLayers = ["conflict-zones-fill", "conflict-zones-border", "conflict-zones-labels"];
     conflictLayers.forEach((l) => {
       if (map.getLayer(l)) {
         map.setLayoutProperty(l, "visibility", layers.conflicts ? "visible" : "none");

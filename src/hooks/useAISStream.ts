@@ -16,18 +16,45 @@ export function useAISStream(): UseAISStreamReturn {
   const [vessels, setVessels] = useState<Map<number, VesselData>>(new Map());
   const [connected, setConnected] = useState(false);
   const bufferRef = useRef<Map<number, VesselData>>(new Map());
+  const removalsRef = useRef<Set<number>>(new Set());
 
   const flushBuffer = useCallback(() => {
-    if (bufferRef.current.size === 0) return;
-    const buffered = bufferRef.current.size;
+    const hasUpdates = bufferRef.current.size > 0;
+    const hasRemovals = removalsRef.current.size > 0;
+    if (!hasUpdates && !hasRemovals) return;
+
     const entries = Array.from(bufferRef.current.entries());
+    const removals = new Set(removalsRef.current);
     bufferRef.current.clear();
+    removalsRef.current.clear();
+
     setVessels((prev) => {
       const next = new Map(prev);
+
+      // Remove confirmed non-tankers
+      for (const mmsi of removals) {
+        next.delete(mmsi);
+      }
+
+      // Add/update vessels, preserving static data from previous entries
       for (const [mmsi, vessel] of entries) {
+        const existing = next.get(mmsi);
+        if (existing) {
+          // Preserve static fields if new report lacks them
+          if (!vessel.shipType && existing.shipType) vessel.shipType = existing.shipType;
+          if (!vessel.vesselClass && existing.vesselClass) vessel.vesselClass = existing.vesselClass;
+          if (!vessel.destination && existing.destination) vessel.destination = existing.destination;
+          if (!vessel.length && existing.length) vessel.length = existing.length;
+          if (!vessel.beam && existing.beam) vessel.beam = existing.beam;
+          if (!vessel.draught && existing.draught) vessel.draught = existing.draught;
+          if (!vessel.eta && existing.eta) vessel.eta = existing.eta;
+          if (!vessel.callSign && existing.callSign) vessel.callSign = existing.callSign;
+          if (!vessel.imoNumber && existing.imoNumber) vessel.imoNumber = existing.imoNumber;
+        }
         next.set(mmsi, vessel);
       }
-      console.log(`[AIS] Flushed ${buffered} vessels, total: ${next.size}`);
+
+      console.log(`[AIS] Flushed ${entries.length} updates, ${removals.size} removals, total: ${next.size}`);
       return next;
     });
   }, []);
@@ -57,6 +84,10 @@ export function useAISStream(): UseAISStreamReturn {
           if (data.type === "disconnected") {
             console.log("[AIS] Stream disconnected");
             setConnected(false);
+            return;
+          }
+          if (data.type === "remove") {
+            removalsRef.current.add(data.mmsi);
             return;
           }
 

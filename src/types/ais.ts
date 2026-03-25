@@ -12,8 +12,7 @@ export interface AISMessage {
     PositionReport?: PositionReport;
     ShipStaticData?: ShipStaticDataReport;
   };
-  // Enriched by server-side merge
-  StaticData?: EnrichedStaticData;
+  StaticData?: EnrichedStaticData; // Enriched by server-side merge
 }
 
 export interface PositionReport {
@@ -40,27 +39,17 @@ export interface ShipStaticDataReport {
   AisVersion: number;
   CallSign: string;
   Destination: string;
-  Dimension: {
-    A: number; // bow to reference point
-    B: number; // reference point to stern
-    C: number; // port side
-    D: number; // starboard side
-  };
+  Dimension: { A: number; B: number; C: number; D: number };
   Dte: boolean;
-  Eta: {
-    Month: number;
-    Day: number;
-    Hour: number;
-    Minute: number;
-  };
+  Eta: { Month: number; Day: number; Hour: number; Minute: number };
   FixType: number;
   ImoNumber: number;
   MaximumStaticDraught: number;
   MessageID: number;
   RepeatIndicator: number;
   Spare: boolean;
-  Type: number; // AIS ship type code
-  UserID: number; // MMSI
+  Type: number;
+  UserID: number;
   Valid: boolean;
 }
 
